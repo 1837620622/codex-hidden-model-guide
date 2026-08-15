@@ -24,6 +24,7 @@
 - [常见问题 FAQ](#常见问题-faq)
 - [回滚方法](#回滚方法)
 - [支持与赞赏](#支持与赞赏)
+- [目录结构](#目录结构)
 
 ---
 
@@ -93,6 +94,21 @@ chmod +x install.sh
 ```
 
 > install.sh 自动检测系统:macOS 注册 launchd(每小时 + 登录时运行),Linux 注册 crontab(每小时),均自动处理路径、清理旧任务。
+
+### 改动最小化
+
+本教程对系统的改动仅限以下几项,其余文件与配置一律不动,回滚时删除这几项即可完全还原:
+
+| 改动项 | 位置 | 用途 |
+| --- | --- | --- |
+| `config.toml` 加 2 行 | `<CODEX_ROOT>/config.toml` | 设置默认模型 + 指向可见目录 |
+| 可见目录 1 个 | `<CODEX_ROOT>/models_auto_visible.json` | 所有隐藏模型改为可见 |
+| 同步脚本 1 个 | `<CODEX_ROOT>/auto-model-cache.py` | 每小时自动同步(可选,不装也能用) |
+| 定时任务 1 个 | launchd / cron / 计划任务 | 每小时跑一次脚本(可选) |
+
+- 不改 `models_cache.json`(会被官方自动覆盖)
+- 不改认证、权限、网络等任何其他配置
+- 同步脚本只把 `visibility` 从 `hide` 改为 `list`,其他字段一律保留原样
 
 ### Windows(管理员 PowerShell)
 
@@ -224,6 +240,8 @@ for m in d['models']:
 
 ### 第 5 步:修改 config.toml
 
+> 建议先备份:`cp "${CODEX_HOME:-$HOME/.codex}/config.toml" "${CODEX_HOME:-$HOME/.codex}/config.toml.before-wm-$(date +%Y%m%d-%H%M%S).bak"`(Windows 用 `Copy-Item`,回滚时可用)。
+>
 > 只需修改下面两行,其余配置一律不动。用文本编辑器打开 `config.toml`,在顶层添加(路径替换成你自己的,先用第 1 步的 `$CodexRoot` 查看实际路径):
 
 > Windows 路径中的斜杠正反均可,Codex 均能识别;但需写完整路径,不能用 `$CodexRoot` 变量(TOML 不支持变量)。
@@ -363,6 +381,8 @@ CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
 sed "s|__CODEX_ROOT__|$CODEX_ROOT|g" launchd/com.ck.auto-model-cache.plist > ~/Library/LaunchAgents/com.ck.auto-model-cache.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ck.auto-model-cache.plist
 ```
+
+> 手动方式不做 XML 转义,路径含 `&` `<` `>` `|` 等特殊字符时请改用一键安装。
 
 - **Linux**:一键安装自动注册 crontab;也可手动:
 

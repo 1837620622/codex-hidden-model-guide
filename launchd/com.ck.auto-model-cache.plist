@@ -14,9 +14,5 @@
     <integer>3600</integer>
     <key>RunAtLoad</key>
     <true/>
-    <key>StandardOutPath</key>
-    <string>__CODEX_ROOT__/log/auto-model-cache.stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>__CODEX_ROOT__/log/auto-model-cache.stderr.log</string>
 </dict>
 </plist>

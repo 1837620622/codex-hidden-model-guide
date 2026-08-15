@@ -11,7 +11,7 @@ Codex 模型目录自动同步脚本(跨平台 macOS / Windows)
 路径识别优先级:
   1. 命令行参数: python3 auto-model-cache.py <CODEX_ROOT>
   2. 环境变量 CODEX_HOME
-  3. 默认回退 ~/.codex(macOS)或 %USERPROFILE%\.codex(Windows)
+  3. 默认回退 ~/.codex(macOS)或 %USERPROFILE%\\.codex(Windows)
 
 Windows 注意:所有文件读写显式指定 UTF-8 编码,避免 GBK 乱码。
 """
