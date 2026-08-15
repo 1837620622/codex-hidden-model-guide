@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Codex 模型目录自动同步脚本(跨平台 macOS / Windows)
-- 读取官方 models_cache.json,重新生成可见模型目录
+Codex 模型目录自动同步脚本(跨平台 macOS / Linux / Windows)
+- 优先直连官方源 /backend-api/codex/models 拉取最新模型目录(实时,不等本地缓存刷新)
+- 官方源不可用时回退读取本地 models_cache.json
 - 将目录中所有 visibility=hide 的隐藏模型强制改为 list(不硬编码模型名,
-  以后官方新增任何隐藏模型都会自动可见)
+  官方新增任何隐藏模型都会自动可见)
 - 无变化时零操作,有变化时原子写入并记录日志
-- 只写可见目录文件,不修改任何其他配置
+- 只写可见目录文件,不修改 models_cache.json / config.toml 等任何其他配置
 
 路径识别优先级:
   1. 命令行参数: python3 auto-model-cache.py <CODEX_ROOT>
   2. 环境变量 CODEX_HOME
-  3. 默认回退 ~/.codex(macOS)或 %USERPROFILE%\\.codex(Windows)
+  3. 默认回退 ~/.codex(macOS/Linux)或 %USERPROFILE%\\.codex(Windows)
 
 Windows 注意:所有文件读写显式指定 UTF-8 编码,避免 GBK 乱码。
 """
@@ -19,8 +20,11 @@ Windows 注意:所有文件读写显式指定 UTF-8 编码,避免 GBK 乱码。
 import json
 import os
 import shutil
+import ssl
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 
 # 跨平台进程锁:macOS/Linux 用 fcntl,Windows 用 msvcrt
@@ -143,6 +147,60 @@ def load_json(path):
         return json.load(f)
 
 
+def fetch_official_catalog():
+    """直连官方源拉取最新模型目录,返回 (目录dict, 来源描述)。
+    失败(网络/认证/解析)时返回 (None, 原因)。绝不写任何本地文件。
+    数据来源: Codex CLI 同款端点 /backend-api/codex/models,
+    认证取 auth.json 的 access_token,版本号取本地缓存的 client_version。
+    """
+    try:
+        # 读取认证令牌
+        auth_path = os.path.join(CODEX_HOME, "auth.json")
+        if not os.path.exists(auth_path):
+            return None, "auth.json 不存在"
+        auth = load_json(auth_path)
+        tokens = auth.get("tokens") or {}
+        token = tokens.get("access_token") or auth.get("OPENAI_API_KEY")
+        if not token:
+            return None, "auth.json 中无 access_token"
+
+        # 读取本地缓存中的 client_version(与客户端一致,避免版本门禁静默过滤)
+        client_version = None
+        if os.path.exists(CACHE_PATH):
+            try:
+                client_version = load_json(CACHE_PATH).get("client_version")
+            except Exception:
+                pass
+        if not client_version:
+            return None, "无法确定 client_version"
+
+        url = "https://chatgpt.com/backend-api/codex/models?client_version={}".format(
+            client_version)
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+            "OpenAI-Build": "macos_cli",
+            "User-Agent": "codex/" + str(client_version),
+            "Accept": "application/json",
+        })
+        # 有限超时,失败不阻塞定时任务
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+            body = resp.read()
+        data = json.loads(body.decode("utf-8"))
+        if "models" not in data or not isinstance(data["models"], list):
+            return None, "官方源返回缺少 models 列表"
+        if not data["models"]:
+            return None, "官方源返回空模型列表"
+        return data, "官方源"
+    except urllib.error.HTTPError as e:
+        return None, "官方源 HTTP {}".format(e.code)
+    except urllib.error.URLError as e:
+        return None, "官方源网络错误: {}".format(getattr(e, "reason", e))
+    except Exception as e:
+        return None, "官方源解析失败: {}".format(e)
+
+
 def main():
     # 已有实例在运行(launchd/cron/计划任务/手动并发)时直接退出,避免竞争
     if not acquire_lock():
@@ -158,20 +216,30 @@ def main():
         except OSError:
             pass
 
-        # 缓存不存在时直接失败,保留现有可见目录
-        if not os.path.exists(CACHE_PATH):
-            log(f"错误: 缓存不存在 {CACHE_PATH}")
-            sys.exit(1)
-
-        # 缓存解析失败时直接失败,保留现有可见目录
-        try:
-            cache = load_json(CACHE_PATH)
-        except Exception as e:
-            log(f"错误: 缓存解析失败 {e}, 保留现有目录")
-            sys.exit(1)
+        # 优先直连官方源拉取最新目录(实时,不等本地缓存刷新)
+        cache = None
+        catalog, err = fetch_official_catalog()
+        if catalog is not None:
+            cache = catalog
+            source = "官方源"
+        else:
+            # 官方源不可用(网络/认证/版本未知)时回退本地缓存
+            log("官方源不可用({}), 回退本地缓存".format(err))
+            if not os.path.exists(CACHE_PATH):
+                log(f"错误: 缓存不存在 {CACHE_PATH}")
+                sys.exit(1)
+            try:
+                cache = load_json(CACHE_PATH)
+            except Exception as e:
+                log(f"错误: 缓存解析失败 {e}, 保留现有目录")
+                sys.exit(1)
+            source = "本地缓存"
 
         if "models" not in cache or not isinstance(cache["models"], list):
-            log("错误: 缓存缺少 models 列表, 保留现有目录")
+            log("错误: 目录缺少 models 列表, 保留现有目录")
+            sys.exit(1)
+        if not cache["models"]:
+            log("错误: 目录为空, 保留现有目录")
             sys.exit(1)
 
         # 深度复制后应用可见性覆盖,不修改原始缓存对象
@@ -221,7 +289,7 @@ def main():
                     pass
             sys.exit(1)
 
-        log(f"已同步 {len(new_slugs)} 个模型; 隐藏→可见: {changed or '无'}; "
+        log(f"已同步({source}) {len(new_slugs)} 个模型; 隐藏→可见: {changed or '无'}; "
             f"新增: {added or '无'}; 移除: {removed or '无'}")
     finally:
         release_lock()
