@@ -64,8 +64,8 @@ fi
 
 # ---- 5. 提示下一步 ----
 echo ""
-echo "完成!下一步:在 $CODEX_ROOT/config.toml 顶层添加:"
-echo "  model = \"gpt-5.6-sol-wm\""
+echo "完成!下一步:在 $CODEX_ROOT/config.toml 顶层添加(model 换成你本地缓存的隐藏路由 slug,如 gpt-5.6-sol-wm):"
+echo "  model = \"你的隐藏路由slug\"   # 如 gpt-5.6-sol-wm(以本地缓存为准)"
 echo "  model_catalog_json = \"$CODEX_ROOT/models_auto_visible.json\""
 echo "然后彻底退出并重启 Codex 即可生效。"
 echo ""

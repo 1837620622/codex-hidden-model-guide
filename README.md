@@ -1,6 +1,6 @@
-# Codex 隐藏模型无限调用指南
+# Codex 隐藏路由模型无限调用指南
 
-> GPT-5.6-Sol 隐藏路由模型 `gpt-5.6-sol-wm` 全平台启用教程
+> 隐藏路由模型(当前示例:`gpt-5.6-sol-wm`)全平台启用教程
 > 任意付费账号不消耗额度,附每小时自动同步脚本
 
 <div align="center">
@@ -8,6 +8,8 @@
 **适用平台:macOS / Linux / Windows** | **适用账号:Plus / Pro / Team**
 
 </div>
+
+> **通用性说明**:本文以 `gpt-5.6-sol-wm` 作为示例。OpenAI 会不定期下发新的隐藏路由模型,本文方法对所有隐藏模型通用——只需把文中出现的 slug 换成你本地缓存里的实际值(如何查找见[第 2 步](#第-2-步查找本地缓存的隐藏模型))。自动同步脚本不硬编码任何模型名,未来新模型自动生效。
 
 ---
 
@@ -30,7 +32,7 @@
 
 ## 这是什么
 
-`gpt-5.6-sol-wm` 是 GPT-5.6-Sol 的一个**内部 Work Mode 路由别名**,由 OpenAI 服务器主动下发到所有 Codex 客户端的模型目录中,但默认隐藏(`visibility: hide`)。
+`gpt-5.6-sol-wm`(示例,下称"隐藏路由模型")是 OpenAI 服务器主动下发到所有 Codex 客户端模型目录中的一个**内部路由别名**,但默认隐藏(`visibility: hide`)。这类模型是官方下发给客户端的隐藏条目,不属于公开 API 模型。
 
 核心结论:
 
@@ -38,7 +40,7 @@
 - 不出现在 OpenAI 消费明细中
 - Plus / Pro / Team 账号均可用
 - Free 账号会被服务器拒绝(本地配置无法绕过)
-- 返回内容质量与 Sol 完全一致
+- 返回内容质量与对应的公开模型完全一致
 
 ## 原理
 
@@ -50,13 +52,13 @@ graph LR
     C -->|是| E[本地 models_auto_visible.json]
     D --> F[隐藏模型 hide 不可见]
     E --> G[隐藏模型改为 list 可见]
-    G --> H[默认模型 gpt-5.6-sol-wm]
+    G --> H[默认模型设为隐藏路由 slug]
     H --> I[不消耗额度]
 ```
 
 | 属性 | 值 | 含义 |
 | --- | --- | --- |
-| slug | `gpt-5.6-sol-wm` | 模型内部标识 |
+| slug | `gpt-5.6-sol-wm`(示例) | 模型内部标识,以本地缓存实际值为准 |
 | visibility | `hide` | 默认在模型选择器中隐藏 |
 | supported_in_api | `false` | 不是公开 API 模型,不走 API 计费通道 |
 | 存在位置 | `models_cache.json` | 由 OpenAI 服务器自动下发 |
@@ -79,6 +81,19 @@ graph LR
 ## 一键安装(推荐)
 
 > 安装器自动识别 CODEX_ROOT(命令行参数 > CODEX_HOME > 默认路径),自动完成:安装脚本 → 生成可见目录 → 注册定时任务。
+
+**自动安装到 Codex 根目录(默认 `~/.codex`,macOS/Linux;Windows 为 `%USERPROFILE%\.codex`):**
+
+| 文件 | 位置 | 说明 |
+| --- | --- | --- |
+| `auto-model-cache.py` | `<CODEX_ROOT>/` | 自动同步脚本(可执行) |
+| `models_auto_visible.json` | `<CODEX_ROOT>/` | 可见模型目录(自动生成) |
+| `auto-model-cache.log` | `<CODEX_ROOT>/log/` | 运行日志(1MB 轮转 + 7 天自动清理) |
+| 定时任务 | launchd / cron / 计划任务 | 每小时运行一次 |
+
+自定义 CODEX_ROOT:安装时传参数即可,见下方示例。
+
+> 下表是"装了什么";总改动清单(含 config.toml 两行)见[改动最小化](#改动最小化)。
 
 ### macOS / Linux
 
@@ -136,13 +151,15 @@ $CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USER
 $CodexRoot
 ```
 
-**macOS(终端):**
+**macOS / Linux(终端):**
 
 ```bash
 echo "${CODEX_HOME:-$HOME/.codex}"
 ```
 
-### 第 2 步:检查缓存中是否已有 WM 条目
+### 第 2 步:查找本地缓存的隐藏模型
+
+先确认隐藏路由模型存在。把下面的 `gpt-5.6-sol-wm` 换成你想启用的 slug(当前示例;以后新下发模型的 slug 可能不同,同样适用):
 
 **Windows:**
 
@@ -151,13 +168,13 @@ $CachePath = Join-Path $CodexRoot 'models_cache.json'
 Select-String -LiteralPath $CachePath -Pattern '"slug": "gpt-5.6-sol-wm"'
 ```
 
-**macOS:**
+**macOS / Linux:**
 
 ```bash
 grep -o '"slug": "gpt-5.6-sol-wm"' "${CODEX_HOME:-$HOME/.codex}/models_cache.json"
 ```
 
-看到了 `gpt-5.6-sol-wm` 且附近有 `"visibility": "hide"`:继续下一步。完全找不到:先正常使用一次 Codex 让它刷新缓存,然后再查。
+看到了目标 slug 且附近有 `"visibility": "hide"`:继续下一步。完全找不到:先正常使用一次 Codex 让它刷新缓存,然后再查。
 
 > 提示:若 `models_cache.json` 是压缩格式(无空格),把搜索模式改为 `"slug":"gpt-5.6-sol-wm"` 或直接用 `grep -o 'gpt-5\.6-sol-wm'`。
 
@@ -172,7 +189,7 @@ $CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USER
 $CachePath = Join-Path $CodexRoot 'models_cache.json'
 $VisibleCatalog = Join-Path $CodexRoot 'models_auto_visible.json'
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$CacheBackup = Join-Path $CodexRoot "models_cache.before-wm-$Stamp.bak"
+$CacheBackup = Join-Path $CodexRoot "models_cache.before-hidden-$Stamp.bak"
 
 if (-not (Test-Path -LiteralPath $CachePath)) { throw "找不到模型缓存: $CachePath" }
 
@@ -222,9 +239,9 @@ $Catalog = Get-Content -Raw -LiteralPath $VisibleCatalog -Encoding UTF8 | Conver
 @($Catalog.models | Where-Object slug -eq 'gpt-5.6-sol-wm').visibility
 ```
 
-预期输出:`list`
+预期输出:`list`(换成你目标的 slug 查询)
 
-**macOS:**
+**macOS / Linux:**
 
 ```bash
 python3 -c "
@@ -236,11 +253,11 @@ for m in d['models']:
 "
 ```
 
-预期输出:WM 为 `list`,所有原隐藏模型均为 `list`(含 codex-auto-review),原可见模型保持 `list` 不变。
+预期输出:目标 slug 为 `list`,所有原隐藏模型均为 `list`(含 codex-auto-review),原可见模型保持 `list` 不变。
 
 ### 第 5 步:修改 config.toml
 
-> 建议先备份:`cp "${CODEX_HOME:-$HOME/.codex}/config.toml" "${CODEX_HOME:-$HOME/.codex}/config.toml.before-wm-$(date +%Y%m%d-%H%M%S).bak"`(Windows 用 `Copy-Item`,回滚时可用)。
+> 建议先备份:`cp "${CODEX_HOME:-$HOME/.codex}/config.toml" "${CODEX_HOME:-$HOME/.codex}/config.toml.before-hidden-$(date +%Y%m%d-%H%M%S).bak"`(Windows 用 `Copy-Item`,回滚时可用)。
 >
 > 只需修改下面两行,其余配置一律不动。用文本编辑器打开 `config.toml`,在顶层添加(路径替换成你自己的,先用第 1 步的 `$CodexRoot` 查看实际路径):
 
@@ -251,14 +268,14 @@ model = "gpt-5.6-sol-wm"
 model_catalog_json = "C:/Users/你的用户名/.codex/models_auto_visible.json"
 ```
 
-macOS 示例:
+macOS / Linux 示例:
 
 ```toml
 model = "gpt-5.6-sol-wm"
 model_catalog_json = "/Users/你的用户名/.codex/models_auto_visible.json"
 ```
 
-只改这两行即可生效,不要动其他任何配置(不要改 `supported_in_api`,那个字段不影响 Codex 调用)。
+`model` 的值换成你在[第 2 步](#第-2-步查找本地缓存的隐藏模型)找到的实际 slug(以后官方下发新隐藏模型时,把这里改成新 slug 即可,其余步骤不变)。只改这两行即可生效,不要动其他任何配置(不要改 `supported_in_api`,那个字段不影响 Codex 调用)。
 
 > 可选(不影响本教程效果,非必需):如想加深推理可加 `model_reasoning_effort = "max"`;如想开启快速模式可加 `service_tier = "fast"` + `[features] fast_mode = true`。不熟悉 TOML 语法的话建议跳过。
 
@@ -267,7 +284,7 @@ model_catalog_json = "/Users/你的用户名/.codex/models_auto_visible.json"
 1. 从系统托盘/菜单栏彻底退出 Codex(不是点窗口右上角关闭)
 2. 重新打开 Codex
 3. 新建任务,打开模型选择器
-4. 你应该能看到 GPT-5.6-Sol-WM 出现在列表中
+4. 你应该能看到目标模型(如 GPT-5.6-Sol-WM)出现在列表中
 
 如果选择器里还是看不到,可以用 CLI 检查(视版本支持情况而定):
 
@@ -275,11 +292,11 @@ model_catalog_json = "/Users/你的用户名/.codex/models_auto_visible.json"
 codex debug models
 ```
 
-在输出中搜索 `gpt-5.6-sol-wm`,看看 visibility 是不是 `list`。若该子命令不可用,直接跳到下面的服务器探针验证。
+在输出中搜索目标 slug(如 `gpt-5.6-sol-wm`),看看 visibility 是不是 `list`。若该子命令不可用,直接跳到下面的服务器探针验证。
 
 ### 第 7 步:不改 UI 也能用
 
-如果你不想改模型选择器,也可以直接用命令行指定模型:
+如果你不想改模型选择器,也可以直接用命令行指定模型(换成你的 slug):
 
 ```bash
 codex --model gpt-5.6-sol-wm
@@ -289,9 +306,9 @@ codex --model gpt-5.6-sol-wm
 
 ## 服务器最小探针
 
-跑一次这个最小探针,确认服务器接受你的账号:
+跑一次这个最小探针,确认服务器接受你的账号(把 `gpt-5.6-sol-wm` 换成你的 slug):
 
-**macOS:**
+**macOS / Linux:**
 
 ```bash
 codex --ask-for-approval never exec \
@@ -308,7 +325,7 @@ codex --ask-for-approval never exec \
   -c 'features.shell_tool=false' \
   -c 'features.multi_agent=false' \
   -c 'project_doc_max_bytes=0' \
-  'Reply exactly WM_OK. Do not call any tool.'
+  'Reply exactly HIDDEN_OK. Do not call any tool.'
 ```
 
 **Windows(PowerShell,换行符用反引号):**
@@ -328,15 +345,15 @@ codex --ask-for-approval never exec `
   -c 'features.shell_tool=false' `
   -c 'features.multi_agent=false' `
   -c 'project_doc_max_bytes=0' `
-  'Reply exactly WM_OK. Do not call any tool.'
+  'Reply exactly HIDDEN_OK. Do not call any tool.'
 ```
 
 | 输出 | 含义 |
 | --- | --- |
-| `WM_OK` + 退出码 0 | 服务器接受了你的账号,可以正常使用 |
+| `HIDDEN_OK` + 退出码 0 | 服务器接受了你的账号,可以正常使用 |
 | `model is not supported` | 你的账号没有权限(大概率是 Free 账号) |
 | 401 错误 | 登录过期了,重新登录 |
-| 额度超限 | 不能据此判断 WM 是否可用 |
+| 额度超限 | 不能据此判断隐藏路由模型是否可用 |
 
 ## 自动同步脚本
 
@@ -417,12 +434,12 @@ Register-ScheduledTask -TaskName 'CodexAutoModelCache' -Action $Action -Trigger 
 
 根据社区观察:
 
-1. WM 不是公开 API 模型:`supported_in_api: false` 意味着不走 API 计费通道
-2. WM 是内部路由别名:它可能指向同一个 Sol 模型权重,但走了不同的计费路径
-3. 消费明细中不出现:连续使用一周,OpenAI 账单页面完全没有 WM 相关的用量记录
-4. 不影响正常额度:使用 WM 后,正常的 5 小时 / 1 周用量窗口不受影响
+1. 隐藏路由模型不是公开 API 模型:`supported_in_api: false` 意味着不走 API 计费通道
+2. 它是内部路由别名:可能指向与公开模型相同的权重,但走了不同的计费路径
+3. 消费明细中不出现:连续使用一周,OpenAI 账单页面完全没有对应的用量记录
+4. 不影响正常额度:使用后,正常的 5 小时 / 1 周用量窗口不受影响
 
-> 推测:WM 可能是 OpenAI 内部测试或特殊用途的路由别名,被意外包含在下发给所有客户端的模型目录中。
+> 推测:这类模型可能是 OpenAI 内部测试或特殊用途的路由别名,被意外包含在下发给所有客户端的模型目录中。
 
 ## 常见问题 FAQ
 
@@ -448,15 +465,15 @@ Register-ScheduledTask -TaskName 'CodexAutoModelCache' -Action $Action -Trigger 
 
 ### Q6: codex-auto-review 是什么?
 
-模型目录里的另一个隐藏条目,用于 Codex 内部的代码审核功能。本项目默认将其一并显示,无需专门调用;如只想暴露 WM,参见"严格模式"。
+模型目录里的另一个隐藏条目,用于 Codex 内部的代码审核功能。本项目默认将其一并显示,无需专门调用;如只想暴露指定 slug,参见"严格模式"。
 
 ### Q7: Windows 中文系统乱码怎么办?
 
 所有脚本与示例命令均已显式使用 UTF-8 读写文件。若 PowerShell 控制台仍显示乱码,先执行 `chcp 65001` 再运行。
 
-### Q8: 严格模式(只暴露 WM,不显示 auto-review)?
+### Q8: 严格模式(只暴露指定模型,不显示 auto-review)?
 
-默认同步脚本会把所有隐藏模型改为可见。如需只暴露 WM,替换脚本中"隐藏→可见"循环为:
+默认同步脚本会把所有隐藏模型改为可见。如需只暴露某个 slug,替换脚本中"隐藏→可见"循环为(把 slug 换成你的):
 
 ```python
 VISIBLE_OVERRIDES = {"gpt-5.6-sol-wm"}
@@ -469,14 +486,14 @@ for m in visible["models"]:
 
 ## 回滚方法
 
-> 回滚 = 删除第 5 步添加的两行(`model = "gpt-5.6-sol-wm"` 和 `model_catalog_json`),把 `model` 改回你原来的模型(如 `gpt-5.6-sol`)。如第 5 步前备份过 config.toml,也可直接恢复备份:
+> 回滚 = 删除第 5 步添加的两行(`model` 和 `model_catalog_json`),把 `model` 改回你原本的默认模型。如第 5 步前备份过 config.toml,也可直接恢复备份:
 
 **Windows:**
 
 ```powershell
 $CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
 # 恢复到最新备份(如之前备份过)
-$Backup = Get-ChildItem -Path $CodexRoot -Filter 'config.toml.before-wm-*.bak' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$Backup = Get-ChildItem -Path $CodexRoot -Filter 'config.toml.before-hidden-*.bak' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($Backup) { Copy-Item -LiteralPath $Backup.FullName -Destination (Join-Path $CodexRoot 'config.toml') -Force }
 # 删除自定义目录与定时任务
 Remove-Item -LiteralPath (Join-Path $CodexRoot 'models_auto_visible.json') -Force -ErrorAction SilentlyContinue
@@ -488,7 +505,7 @@ Unregister-ScheduledTask -TaskName 'CodexAutoModelCache' -Confirm:$false -ErrorA
 ```bash
 CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
 # 恢复到最新备份(如之前备份过)
-BACKUP=$(ls -t "$CODEX_ROOT"/config.toml.before-wm-*.bak 2>/dev/null | head -1)
+BACKUP=$(ls -t "$CODEX_ROOT"/config.toml.before-hidden-*.bak 2>/dev/null | head -1)
 if [ -n "$BACKUP" ]; then cp "$BACKUP" "$CODEX_ROOT/config.toml"; fi
 # 删除自定义目录与定时任务
 rm -f "$CODEX_ROOT/models_auto_visible.json"
@@ -498,7 +515,7 @@ crontab -l | grep -v "auto-model-cache.py" | crontab -                         #
 
 最后:彻底退出 Codex → 重启 Codex,即恢复原样。
 
-> 提示:第 3 步生成的 `models_cache.before-wm-*.bak` 缓存备份可一并删除(可选,保留更安全)。
+> 提示:第 3 步生成的 `models_cache.before-hidden-*.bak` 缓存备份可一并删除(可选,保留更安全)。
 
 ## 支持与赞赏
 
@@ -513,7 +530,7 @@ crontab -l | grep -v "auto-model-cache.py" | crontab -                         #
 ## 目录结构
 
 ```
-codex-gpt56-sol-wm-guide/
+codex-hidden-model-guide/
 ├── README.md                      # 本教程
 ├── install.sh                     # macOS / Linux 一键安装(自动识别路径 + launchd / cron 定时)
 ├── install.ps1                    # Windows 一键安装(自动识别路径 + 计划任务)
