@@ -76,10 +76,10 @@ Write-Host "==> 计划任务已注册: CodexAutoModelCache (每小时运行一�
 
 # ---- 6. 提示下一步 ----
 Write-Host ""
-Write-Host "完成!下一步:在 $CodexRoot\config.toml 顶层添加:"
-Write-Host "  model = `"你的隐藏路由slug`"   # 如 gpt-5.6-sol-wm(以本地缓存为准)"
+Write-Host "完成!下一步:在 $CodexRoot\config.toml 顶层添加一行:"
 Write-Host "  model_catalog_json = `"$VisibleCatalog`""
-Write-Host "然后彻底退出并重启 Codex 即可生效。"
+Write-Host "然后在 Codex 模型选择器中自主选择隐藏路由模型(如 gpt-5.6-sol-wm)。"
+Write-Host "建议不要设为默认模型:隐藏路由模型可能随时失效,失效后可随时切换回正常模型。"
 Write-Host ""
 if ($PythonCmd -eq 'py') {
     Write-Host "验证: py -3 $ScriptDst $CodexRoot"

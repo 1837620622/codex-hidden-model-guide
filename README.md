@@ -52,7 +52,7 @@ graph LR
     C -->|是| E[本地 models_auto_visible.json]
     D --> F[隐藏模型 hide 不可见]
     E --> G[隐藏模型改为 list 可见]
-    G --> H[默认模型设为隐藏路由 slug]
+    G --> H[选择器中可见,按次选用]
     H --> I[不消耗额度]
 ```
 
@@ -116,7 +116,7 @@ chmod +x install.sh
 
 | 改动项 | 位置 | 用途 |
 | --- | --- | --- |
-| `config.toml` 加 2 行 | `<CODEX_ROOT>/config.toml` | 设置默认模型 + 指向可见目录 |
+| `config.toml` 加 1 行 | `<CODEX_ROOT>/config.toml` | 指向可见目录(不改动原有 model) |
 | 可见目录 1 个 | `<CODEX_ROOT>/models_auto_visible.json` | 所有隐藏模型改为可见 |
 | 同步脚本 1 个 | `<CODEX_ROOT>/auto-model-cache.py` | 每小时自动同步(可选,不装也能用) |
 | 定时任务 1 个 | launchd / cron / 计划任务 | 每小时跑一次脚本(可选) |
@@ -255,36 +255,45 @@ for m in d['models']:
 
 预期输出:目标 slug 为 `list`,所有原隐藏模型均为 `list`(含 codex-auto-review),原可见模型保持 `list` 不变。
 
-### 第 5 步:修改 config.toml
+### 第 5 步:修改 config.toml(只加一行,不设默认模型)
 
 > 建议先备份:`cp "${CODEX_HOME:-$HOME/.codex}/config.toml" "${CODEX_HOME:-$HOME/.codex}/config.toml.before-hidden-$(date +%Y%m%d-%H%M%S).bak"`(Windows 用 `Copy-Item`,回滚时可用)。
 >
-> 只需修改下面两行,其余配置一律不动。用文本编辑器打开 `config.toml`,在顶层添加(路径替换成你自己的,先用第 1 步的 `$CodexRoot` 查看实际路径):
+> 只需在顶层添加 `model_catalog_json` 一行,其余配置一律不动(路径替换成你自己的,先用第 1 步的 `$CodexRoot` 查看实际路径):
 
 > Windows 路径中的斜杠正反均可,Codex 均能识别;但需写完整路径,不能用 `$CodexRoot` 变量(TOML 不支持变量)。
 
+**Windows 示例:**
+
 ```toml
-model = "gpt-5.6-sol-wm"
 model_catalog_json = "C:/Users/你的用户名/.codex/models_auto_visible.json"
 ```
 
-macOS / Linux 示例:
+**macOS / Linux 示例:**
 
 ```toml
-model = "gpt-5.6-sol-wm"
 model_catalog_json = "/Users/你的用户名/.codex/models_auto_visible.json"
 ```
 
-`model` 的值换成你在[第 2 步](#第-2-步查找本地缓存的隐藏模型)找到的实际 slug(以后官方下发新隐藏模型时,把这里改成新 slug 即可,其余步骤不变)。只改这两行即可生效,不要动其他任何配置(不要改 `supported_in_api`,那个字段不影响 Codex 调用)。
+**为什么只加这一行、不设默认模型:**
+
+- 隐藏路由模型是隐藏条目,只要 `model_catalog_json` 指向可见目录,它就会出现在 Codex 的模型选择器中
+- 每次使用时在模型选择器中**自主选择**隐藏路由模型即可,不需要也不建议写进 `model = "..."` 默认值
+- 隐藏路由模型可能随时失效;设为默认模型后一旦失效,整个 Codex 都会无法使用,需要手动改配置才能恢复
+- 不设默认模型,即使隐藏路由模型失效,Codex 也始终可用,随时切换回正常模型即可
+
+> 可选(不建议,了解即可):如确要设为默认模型,可添加 `model = "你的隐藏路由slug"`,并知晓上述失效风险。不要动其他任何配置(不要改 `supported_in_api`,那个字段不影响 Codex 调用)。
 
 > 可选(不影响本教程效果,非必需):如想加深推理可加 `model_reasoning_effort = "max"`;如想开启快速模式可加 `service_tier = "fast"` + `[features] fast_mode = true`。不熟悉 TOML 语法的话建议跳过。
 
-### 第 6 步:重启 Codex
+### 第 6 步:重启 Codex 并在选择器中选择
 
 1. 从系统托盘/菜单栏彻底退出 Codex(不是点窗口右上角关闭)
 2. 重新打开 Codex
 3. 新建任务,打开模型选择器
-4. 你应该能看到目标模型(如 GPT-5.6-Sol-WM)出现在列表中
+4. 你应该能看到目标模型(如 GPT-5.6-Sol-WM)出现在列表中,**选中它**即可使用
+
+> 隐藏路由模型只在选择器中按次选用,不设为默认,失效后随时切回正常模型。
 
 如果选择器里还是看不到,可以用 CLI 检查(视版本支持情况而定):
 
@@ -302,7 +311,7 @@ codex debug models
 codex --model gpt-5.6-sol-wm
 ```
 
-如果 `config.toml` 已经设了默认模型,新建任务时就不用再写 `--model` 了。
+你的 `config.toml` 中原有的 `model` 默认值保持不动,新建任务时默认仍用你原来的模型;需要时在选择器中选中隐藏路由模型即可,不用每次写 `--model`。
 
 ## 服务器最小探针
 
@@ -486,7 +495,7 @@ for m in visible["models"]:
 
 ## 回滚方法
 
-> 回滚 = 删除第 5 步添加的两行(`model` 和 `model_catalog_json`),把 `model` 改回你原本的默认模型。如第 5 步前备份过 config.toml,也可直接恢复备份:
+> 回滚 = 删除第 5 步添加的 `model_catalog_json` 一行即可,原有的 `model` 默认值不受影响(未曾改动)。如第 5 步前备份过 config.toml,也可直接恢复备份:
 
 **Windows:**
 
