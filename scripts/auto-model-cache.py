@@ -104,6 +104,11 @@ def acquire_lock():
         else:
             _LOCK.locking(f.fileno(), _LOCK.LK_NBLCK, 1)
     except OSError:
+        try:
+            f.close()
+        except Exception:
+            pass
+        log("提示: 已有实例在运行, 本次跳过")
         return False
     _LOCK_FILE = f
     return True
@@ -145,15 +150,13 @@ def main():
 
     try:
         # 清理上次崩溃可能遗留的临时文件,防止误读半成品
-        for name in os.listdir(LOG_DIR) if os.path.isdir(LOG_DIR) else []:
-            pass
-        stale = [n for n in os.listdir(os.path.dirname(VISIBLE_PATH))
-                 if n.startswith(os.path.basename(VISIBLE_PATH) + ".tmp")]
-        for n in stale:
-            try:
+        try:
+            stale = [n for n in os.listdir(os.path.dirname(VISIBLE_PATH))
+                     if n.startswith(os.path.basename(VISIBLE_PATH) + ".tmp")]
+            for n in stale:
                 os.remove(os.path.join(os.path.dirname(VISIBLE_PATH), n))
-            except OSError:
-                pass
+        except OSError:
+            pass
 
         # 缓存不存在时直接失败,保留现有可见目录
         if not os.path.exists(CACHE_PATH):
