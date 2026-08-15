@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Codex 隐藏模型自动同步脚本安装器(macOS)
-# 自动识别 CODEX_ROOT(命令行参数 > CODEX_HOME > ~/.codex),安装脚本、生成可见目录、注册 launchd 定时任务
+# Codex 隐藏模型自动同步脚本安装器(macOS / Linux)
+# 自动识别 CODEX_ROOT(命令行参数 > CODEX_HOME > ~/.codex),安装脚本、生成可见目录、注册定时任务
+# macOS 用 launchd,Linux 用 crontab,均每小时运行一次
 set -euo pipefail
 
 # ---- 自动识别 Codex 根目录 ----
@@ -32,24 +33,36 @@ echo "==> 已安装脚本: $CODEX_ROOT/auto-model-cache.py"
 /usr/bin/python3 "$CODEX_ROOT/auto-model-cache.py" "$CODEX_ROOT"
 echo "==> 已生成可见目录: $CODEX_ROOT/models_auto_visible.json"
 
-# ---- 4. 生成 launchd 配置(占位符替换) ----
-mkdir -p "$HOME/Library/LaunchAgents" "$CODEX_ROOT/log"
-# 转义分两步,顺序关键:
-#   第一步:先把路径中的 & < > 替换为 XML 实体(此时路径中不再有原始 &)
-#   第二步:再把路径中剩余的 sed 特殊字符(替换串中的 \ | 和实体自身的 &)
-#           全部转义为 \\ \| \&,防止 sed 替换时被解释
-ESCAPED_ROOT=$(printf '%s' "$CODEX_ROOT" \
-  | sed -e 's/&/__AMP__/g' -e 's/</__LT__/g' -e 's/>/__GT__/g' \
-  | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/__AMP__/\\\&amp;/g' -e 's/__LT__/\\\&lt;/g' -e 's/__GT__/\\\&gt;/g')
-sed "s|__CODEX_ROOT__|$ESCAPED_ROOT|g" "$PLIST_SRC" > "$PLIST_DST"
-echo "==> 已写入定时任务配置: $PLIST_DST"
+# ---- 4. 注册定时任务(按系统自动选择 macOS launchd / Linux cron) ----
+if [ "$(uname -s)" = "Darwin" ]; then
+    # macOS: launchd,每小时运行一次
+    mkdir -p "$HOME/Library/LaunchAgents" "$CODEX_ROOT/log"
+    # 转义分两步,顺序关键:
+    #   第一步:先把路径中的 & < > 替换为 XML 实体(此时路径中不再有原始 &)
+    #   第二步:再把路径中剩余的 sed 特殊字符(替换串中的 \ | 和实体自身的 &)
+    #           全部转义为 \\ \| \&,防止 sed 替换时被解释
+    ESCAPED_ROOT=$(printf '%s' "$CODEX_ROOT" \
+      | sed -e 's/&/__AMP__/g' -e 's/</__LT__/g' -e 's/>/__GT__/g' \
+      | sed -e 's/\\/\\\\/g' -e 's/|/\\|/g' -e 's/__AMP__/\\\&amp;/g' -e 's/__LT__/\\\&lt;/g' -e 's/__GT__/\\\&gt;/g')
+    sed "s|__CODEX_ROOT__|$ESCAPED_ROOT|g" "$PLIST_SRC" > "$PLIST_DST"
+    echo "==> 已写入定时任务配置: $PLIST_DST"
 
-# ---- 5. 注册 launchd(先移除旧任务避免冲突,忽略错误) ----
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST_DST"
-echo "==> 定时任务已注册: $LABEL (每小时运行一次)"
+    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$PLIST_DST"
+    echo "==> 定时任务已注册: $LABEL (launchd,每小时运行一次)"
+else
+    # Linux: crontab,每小时运行一次
+    PYTHON_BIN="$(command -v python3 || echo /usr/bin/python3)"
+    CRON_LINE="0 * * * * $PYTHON_BIN \"$CODEX_ROOT/auto-model-cache.py\" \"$CODEX_ROOT\""
+    # 删除旧的同名任务行,避免重复注册
+    (crontab -l 2>/dev/null | grep -v "auto-model-cache.py" || true) | crontab -
+    (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+    echo "==> 定时任务已注册: crontab(每小时运行一次,Python: $PYTHON_BIN)"
+    echo "    当前 cron 配置:"
+    crontab -l | grep "auto-model-cache.py"
+fi
 
-# ---- 6. 提示下一步 ----
+# ---- 5. 提示下一步 ----
 echo ""
 echo "完成!下一步:在 $CODEX_ROOT/config.toml 顶层添加:"
 echo "  model = \"gpt-5.6-sol-wm\""

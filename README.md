@@ -5,7 +5,7 @@
 
 <div align="center">
 
-**适用平台:macOS / Windows** | **适用账号:Plus / Pro / Team**
+**适用平台:macOS / Linux / Windows** | **适用账号:Plus / Pro / Team**
 
 </div>
 
@@ -79,7 +79,7 @@ graph LR
 
 > 安装器自动识别 CODEX_ROOT(命令行参数 > CODEX_HOME > 默认路径),自动完成:安装脚本 → 生成可见目录 → 注册定时任务。
 
-### macOS
+### macOS / Linux
 
 ```bash
 chmod +x install.sh
@@ -91,6 +91,8 @@ chmod +x install.sh
 ```bash
 ./install.sh /自定义/codex路径
 ```
+
+> install.sh 自动检测系统:macOS 注册 launchd(每小时 + 登录时运行),Linux 注册 crontab(每小时),均自动处理路径、清理旧任务。
 
 ### Windows(管理员 PowerShell)
 
@@ -320,13 +322,24 @@ codex --ask-for-approval never exec `
 
 ## 自动同步脚本
 
-官方缓存会定期刷新。脚本自动检测 `models_cache.json` 变化,重新生成可见目录,官方新增的任何隐藏模型都会自动变为可见,无需手动操作。跨平台纯 Python 实现,Windows / macOS 通用。
+官方缓存会定期刷新。脚本自动检测 `models_cache.json` 变化,重新生成可见目录,官方新增的任何隐藏模型都会自动变为可见,无需手动操作。跨平台纯 Python 实现,macOS / Linux / Windows 通用。
 
-**路径识别优先级**(三处一致,无硬编码):
+**路径识别优先级**(官方约定,三处一致,无硬编码):
 
 1. 命令行参数:`auto-model-cache.py <CODEX_ROOT>`
-2. 环境变量 `CODEX_HOME`
-3. 默认回退:`~/.codex`(macOS)/ `%USERPROFILE%\.codex`(Windows)
+2. 环境变量 `CODEX_HOME`(官方文档:默认 `~/.codex`,设置时目录必须已存在)
+3. 默认回退:`~/.codex`(macOS/Linux)/ `%USERPROFILE%\.codex`(Windows)
+
+依据 OpenAI 官方文档(https://developers.openai.com/codex/environment-variables):`CODEX_HOME` 是所有平台统一的 Codex 状态根目录(配置、认证、日志、会话均在此),默认 `~/.codex`。本脚本与官方行为完全一致。
+
+**自动化能力一览:**
+
+| 能力 | 机制 | 说明 |
+| --- | --- | --- |
+| 自动刷新模型 | 定时任务每小时运行一次 + 登录时运行(macOS) | 官方缓存更新后 1 小时内自动同步可见目录 |
+| 日志自动删除 | 超过 1MB 自动轮转为主日志 `.old`,超过 7 天的旧日志自动删除 | 日志位于 `<CODEX_ROOT>/log/auto-model-cache.log`,不占磁盘 |
+| 无变化零操作 | 内容比对后跳过写入,不产生无用 IO | 幂等设计,重复运行无副作用 |
+| 新增隐藏模型自动可见 | 不硬编码模型名,所有 `hide` 自动改 `list` | 未来任何新隐藏模型(不管叫什么)自动生效 |
 
 **手动运行:**
 
@@ -341,9 +354,44 @@ $CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USER
 python "$CodexRoot\auto-model-cache.py"
 ```
 
-**定时任务:** 见[一键安装](#一键安装推荐),macOS 注册 launchd、Windows 注册计划任务,均每小时运行一次。
+**定时任务(三平台):**
 
-**日志:** `<CODEX_ROOT>/log/auto-model-cache.log`——超过 1MB 自动轮转,超过 7 天自动删除。
+- **macOS**:一键安装自动注册 launchd(每小时,登录时运行);也可手动:
+
+```bash
+CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
+sed "s|__CODEX_ROOT__|$CODEX_ROOT|g" launchd/com.ck.auto-model-cache.plist > ~/Library/LaunchAgents/com.ck.auto-model-cache.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ck.auto-model-cache.plist
+```
+
+- **Linux**:一键安装自动注册 crontab;也可手动:
+
+```bash
+CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
+PYTHON_BIN="$(command -v python3 || echo /usr/bin/python3)"
+crontab -l > /tmp/cron.bak
+grep -v "auto-model-cache.py" /tmp/cron.bak | crontab -
+echo "0 * * * * $PYTHON_BIN \"$CODEX_ROOT/auto-model-cache.py\" \"$CODEX_ROOT\"" | crontab -
+crontab -l | grep auto-model-cache
+```
+
+- **Windows**:一键安装自动注册计划任务;也可手动(管理员 PowerShell):
+
+```powershell
+$CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+$Action = New-ScheduledTaskAction -Execute 'python' -Argument "`"$CodexRoot\auto-model-cache.py`" `"$CodexRoot`""
+$Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 1)
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName 'CodexAutoModelCache' -Action $Action -Trigger $Trigger -Settings $Settings -Force
+```
+
+查看任务:`Get-ScheduledTask -TaskName 'CodexAutoModelCache'`。
+
+**卸载定时任务:**
+
+- macOS:`launchctl bootout gui/$(id -u)/com.ck.auto-model-cache`
+- Linux:`crontab -l | grep -v "auto-model-cache.py" | crontab -`
+- Windows:`Unregister-ScheduledTask -TaskName 'CodexAutoModelCache'`
 
 ## 为什么不消耗额度
 
@@ -415,7 +463,7 @@ Remove-Item -LiteralPath (Join-Path $CodexRoot 'models_auto_visible.json') -Forc
 Unregister-ScheduledTask -TaskName 'CodexAutoModelCache' -Confirm:$false -ErrorAction SilentlyContinue
 ```
 
-**macOS:**
+**macOS / Linux:**
 
 ```bash
 CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
@@ -424,7 +472,8 @@ BACKUP=$(ls -t "$CODEX_ROOT"/config.toml.before-wm-*.bak 2>/dev/null | head -1)
 if [ -n "$BACKUP" ]; then cp "$BACKUP" "$CODEX_ROOT/config.toml"; fi
 # 删除自定义目录与定时任务
 rm -f "$CODEX_ROOT/models_auto_visible.json"
-launchctl bootout "gui/$(id -u)/com.ck.auto-model-cache" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ck.auto-model-cache" 2>/dev/null || true   # macOS
+crontab -l | grep -v "auto-model-cache.py" | crontab -                         # Linux
 ```
 
 最后:彻底退出 Codex → 重启 Codex,即恢复原样。
@@ -446,7 +495,7 @@ launchctl bootout "gui/$(id -u)/com.ck.auto-model-cache" 2>/dev/null || true
 ```
 codex-gpt56-sol-wm-guide/
 ├── README.md                      # 本教程
-├── install.sh                     # macOS 一键安装(自动识别路径 + launchd 定时)
+├── install.sh                     # macOS / Linux 一键安装(自动识别路径 + launchd / cron 定时)
 ├── install.ps1                    # Windows 一键安装(自动识别路径 + 计划任务)
 ├── scripts/
 │   └── auto-model-cache.py        # 自动同步脚本(跨平台,每小时)
